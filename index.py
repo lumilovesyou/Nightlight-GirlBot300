@@ -15,7 +15,7 @@ load_dotenv()
 SITE = "https://nightlightapp.net/"
 API_POINT = f"{SITE}nlapi/"
 SESSION = requests.Session()
-VERSION = "1.0.0"
+VERSION = os.getenv("VERSION") or "1.0.0"
 
 USERNAME = os.getenv("USERNAME")
 
@@ -23,11 +23,13 @@ running = True
 
 # Set up logging
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+if (not os.path.exists(f"{os.getcwd()}/logs")):
+    os.makedirs(f"{os.getcwd()}/logs")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(f"bot-{timestamp}.log"),
+        logging.FileHandler(f"logs/bot-{timestamp}.log"),
         logging.StreamHandler()
     ]
 )
@@ -126,7 +128,7 @@ def replyToUnreadMessages():
                         })
                         logging.info(f"Replying with coinflip to {messageID} {j}")       
     except Exception as e:
-        print(f"Failed to get unread messages!\n{e}")
+        logging.error(f"Failed to get unread messages!\n{e}")
         
 def checkForUpdateMessage():
     response = SESSION.get(f"{SITE}responses.php", params={"getAllPosts": "girlbot3000", "after": "null", "sort": "newest"}).json()
