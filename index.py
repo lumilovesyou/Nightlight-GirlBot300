@@ -1,19 +1,17 @@
-import json
-import logging
-import time
 from dotenv import load_dotenv
+from datetime import datetime
 import mimetypes
-import os
-import platform
-import signal
-import random
-import sys
 import requests
+import logging
 import random
+import signal
+import json
+import time
+import os
 
 load_dotenv()
 
-# Init globals
+# Init consts
 SITE = "https://nightlightapp.net/"
 API_POINT = f"{SITE}nlapi/"
 SESSION = requests.Session()
@@ -23,33 +21,45 @@ USERNAME = os.getenv("USERNAME")
 
 running = True
 
+# Set up logging
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(f"bot-{timestamp}.log"),
+        logging.StreamHandler()
+    ]
+)
+logging.info("Starting bot...")
+
 # Get token
 try:
-    print("Attempting to get key")
+    logging.info("Attempting to get key")
     SESSION.post(f"{SITE}account/login", data={"loginusername": USERNAME, "loginpassword": os.getenv("PASSWORD")})
-    if (SESSION.cookies.get_dict()["username"] != USERNAME):
-        print("Failed to get token!")
+    if SESSION.cookies.get_dict()["username"] != USERNAME:
+        logging.fatal("Failed to get token!")
         exit()
-except:
-    print("Failed to get token!")
+except Exception as e:
+    logging.fatal(f"Failed to get token!\n{e}")
 
 # Invalid the previous token (probably a really gross way to do this but I couldn't find an endpoint to grab tokens from)
 try:
-    print("Attempting to remove tokens")
+    logging.info("Attempting to remove tokens")
     grabTokens = SESSION.get(f"{SITE}u/{USERNAME}").text
     grabTokens = json.loads(grabTokens.split("\"loginTokens\":")[1].split("});document.getElementById('notificationdot-notifications')")[0])
     for i in grabTokens:
-        if (i["device"] == "python-requests/2.25.1" and not i["active"]):
+        if i["device"] == "python-requests/2.25.1" and not i["active"]:
             # Remove old tokens
             SESSION.post(f"{API_POINT}user", params={"action": "invalidateToken"}, json={"tokenId": i["id"]})
-except:
-    print("Failed to remove old tokens")
+except Exception as e:
+    logging.error(f"Failed to remove old tokens\n{e}")
     
-print("Ready Mr. Stark!")
+logging.info("Ready Mr. Stark!")
     
 def createPost(text, category="other", filePath=None):
     files = {}
-    if (filePath and os.path.exists(filePath)):
+    if filePath and os.path.exists(filePath):
         # Don't really need more than one image right now so... ~~~~~~~~~~
         files = {
             "file0": (
@@ -68,52 +78,45 @@ def createPost(text, category="other", filePath=None):
         },
         files=files
     )
-    if (response.status_code == 200):
-        print(f"Posted \"{text}\"")
+    if response.status_code == 200:
+        logging.info(f"Posted \"{text}\"")
     else:
-        print(f"Failed to post \"{text}\"!")
+        logging.error(f"Failed to post \"{text}\"!\n{response.status_code}\n{response.reason}")
 
 # Afaik there's not a way to get the ID of the comment you need to reply to so you just need to logic it out manually
 def findCommentIDs(messageID, author):
     response = SESSION.get(f"{SITE}responses.php", params={"getAllComments": messageID, "author": author}).json()["comments"]
-    print(response)
     validIDs = []
     invalidIDs = []
     for i in response:
-        print(i["author"]["username"])
         if i["author"]["username"] == USERNAME:
             try:
                 replyID = i["comment"]["replyTo"]
-                print(f"Reply ID: {replyID}")
                 invalidIDs.append(replyID)
-            except:
+            except Exception as e:
                 pass
             pass
         text = i["comment"]["content"]
-        print(f"TEXT: {text}")
         if f"@{USERNAME}" in text and "coinflip" in text:
             validIDs.append(i["comment"]["id"])
     for i in invalidIDs:
         try:
             validIDs.remove(i)
-        except:
+        except Exception as e:
             pass
-    print(f"Found valid IDs: {validIDs}")
     return validIDs
 
 def replyToUnreadMessages():
-    print("Attempting to get unread messages")
+    logging.info("Attempting to get unread messages")
     try:
         response = SESSION.get(f"{API_POINT}user", params={"action": "getUnreadNotifications"}).json()["data"]
         messages = response["new"]
-        print(messages)
         for i in messages:
             text = i["content"]
-            if (f"@{USERNAME}" in text and not "</strong> commented" in text):
-                if ("coinflip" in text):
+            if f"@{USERNAME}" in text and not "</strong> commented" in text:
+                if "coinflip" in text:
                     messageID = i["extra"].split("/")
                     messageID = messageID[len(messageID) - 1]
-                    print(f"Message ID: {messageID}")
                     for j in findCommentIDs(messageID, i["owner"]):
                         SESSION.post(f"{API_POINT}comment",
                             data={
@@ -121,12 +124,9 @@ def replyToUnreadMessages():
                             "post": messageID,
                             "replyTo": j
                         })
-                    print("coinflip!")
-                else:
-                    print("Invalid command!")
-                    
-    except:
-        print("Failed to get unread messages!")
+                        logging.info(f"Replying with coinflip to {messageID} {j}")       
+    except Exception as e:
+        print(f"Failed to get unread messages!\n{e}")
         
 def checkForUpdateMessage():
     response = SESSION.get(f"{SITE}responses.php", params={"getAllPosts": "girlbot3000", "after": "null", "sort": "newest"}).json()
@@ -136,24 +136,24 @@ def checkForUpdateMessage():
     createPost(f"Hi! I'm {USERNAME}!\n\nAbout me:\nI'm a bot account by @felisaraneae (v{VERSION})\nI will respond to simple commands when you @ me in comments\n\nCommands:\ncoinflip\n\nMy source: ", "programming", "/Users/felisaraneae/Downloads/profilePicture.png")
 
 def shutdown(signum, frame):
-    print("Shutting down...")
+    logging.info("Shutting down...")
     running = False
 
 signal.signal(signal.SIGINT, shutdown)
 signal.signal(signal.SIGTERM, shutdown)
 
+exit()
+
 try:
     checkForUpdateMessage()
-except:
-    pass
-
-exit()
+except Exception as e:
+    logging.error(f"Failed to check update message!\n{e}")
 
 while running:
     time.sleep(60)
     try:
         replyToUnreadMessages()
-    except:
-        pass
+    except Exception as e:
+        logging.error(f"Failed to do a reply loop!\n{e}")
 
-print("Successfully stopped cleanly!")
+logging("Successfully stopped cleanly!")
