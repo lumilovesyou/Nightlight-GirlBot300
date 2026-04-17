@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from dotenv import load_dotenv
 import mimetypes
 import os
@@ -7,6 +8,7 @@ import platform
 import random
 import sys
 import requests
+import random
 
 load_dotenv()
 
@@ -62,8 +64,68 @@ def createPost(text, category="other", filePath=None):
         },
         files=files
     )
-    print(response.text)
-    print(response.status_code)
-    print(f"Posted \"{text}\"!")
+    if (response.status_code == 200):
+        print(f"Posted \"{text}\"")
+    else:
+        print(f"Failed to post \"{text}\"!")
 
-createPost("Automation test, ignore me!", "other", "/Users/felisaraneae/Downloads/celeste.webp")
+#createPost("About me:\nI'm a bot account by @felisaraneae\nI will respond to simple commands when you @ me", "programming", "/Users/felisaraneae/Downloads/profilePicture.png")
+
+# Afaik there's not a way to get the ID of the comment you need to reply to so you just need to logic it out manually
+def findCommentIDs(messageID, author):
+    response = SESSION.get(f"{SITE}responses.php", params={"getAllComments": messageID, "author": author}).json()["comments"]
+    print(response)
+    validIDs = []
+    invalidIDs = []
+    for i in response:
+        print(i["author"]["username"])
+        if i["author"]["username"] == USERNAME:
+            try:
+                replyID = i["comment"]["replyTo"]
+                print(f"Reply ID: {replyID}")
+                invalidIDs.append(replyID)
+            except:
+                pass
+            pass
+        text = i["comment"]["content"]
+        print(f"TEXT: {text}")
+        if f"@{USERNAME}" in text and "coinflip" in text:
+            validIDs.append(i["comment"]["id"])
+    for i in invalidIDs:
+        try:
+            validIDs.remove(i)
+        except:
+            pass
+    print(f"Found valid IDs: {validIDs}")
+    return validIDs
+
+def replyToUnreadMessages():
+    print("Attempting to get unread messages")
+    try:
+        response = SESSION.get(f"{API_POINT}user", params={"action": "getUnreadNotifications"}).json()["data"]
+        messages = response["new"]
+        print(messages)
+        for i in messages:
+            text = i["content"]
+            if (f"@{USERNAME}" in text and not "</strong> commented" in text):
+                if ("coinflip" in text):
+                    messageID = i["extra"].split("/")
+                    messageID = messageID[len(messageID) - 1]
+                    print(f"Message ID: {messageID}")
+                    for j in findCommentIDs(messageID, i["owner"]):
+                        SESSION.post(f"{API_POINT}comment",
+                            data={
+                            "content": ["heads", "tails"][random.randint(0, 1)],
+                            "post": messageID,
+                            "replyTo": j
+                        })
+                    print("coinflip!")
+                else:
+                    print("Invalid command!")
+                    
+    except:
+        print("Failed to get unread messages!")
+
+while True:
+    time.sleep(5)
+    replyToUnreadMessages()
