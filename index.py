@@ -135,7 +135,7 @@ def checkForUpdateMessage():
     for i in response:
         if f"{VERSION}" in i["post"]["content"]:
             return
-    createPost(f"Hi! I'm {USERNAME}!\n\nAbout me:\nI'm a bot account by @felisaraneae (v{VERSION})\nI will respond to simple commands when you @ me in comments\n\nCommands:\ncoinflip\n\nMy source: ", "programming", "/Users/felisaraneae/Downloads/profilePicture.png")
+    createPost(f"Hi! I'm {USERNAME}!\n\nAbout me:\nI'm an experimental bot account by @felisaraneae (v{VERSION})\nI will respond to simple commands when you @ me in comments\n\nCommands:\ncoinflip\n\nMy source:\nhttps://github.com/lumilovesyou/Nightlight-GirlBot300", "programming", "./assets/profilePicture.png")
 
 def shutdown(signum, frame):
     logging.info("Shutting down...")
