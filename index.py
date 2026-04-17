@@ -144,8 +144,6 @@ def shutdown(signum, frame):
 signal.signal(signal.SIGINT, shutdown)
 signal.signal(signal.SIGTERM, shutdown)
 
-exit()
-
 try:
     checkForUpdateMessage()
 except Exception as e:
