@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import mimetypes
 import os
 import platform
+import signal
 import random
 import sys
 import requests
@@ -16,8 +17,11 @@ load_dotenv()
 SITE = "https://nightlightapp.net/"
 API_POINT = f"{SITE}nlapi/"
 SESSION = requests.Session()
+VERSION = "1.0.0"
 
 USERNAME = os.getenv("USERNAME")
+
+running = True
 
 # Get token
 try:
@@ -68,8 +72,6 @@ def createPost(text, category="other", filePath=None):
         print(f"Posted \"{text}\"")
     else:
         print(f"Failed to post \"{text}\"!")
-
-#createPost("About me:\nI'm a bot account by @felisaraneae\nI will respond to simple commands when you @ me", "programming", "/Users/felisaraneae/Downloads/profilePicture.png")
 
 # Afaik there's not a way to get the ID of the comment you need to reply to so you just need to logic it out manually
 def findCommentIDs(messageID, author):
@@ -125,7 +127,33 @@ def replyToUnreadMessages():
                     
     except:
         print("Failed to get unread messages!")
+        
+def checkForUpdateMessage():
+    response = SESSION.get(f"{SITE}responses.php", params={"getAllPosts": "girlbot3000", "after": "null", "sort": "newest"}).json()
+    for i in response:
+        if f"{VERSION}" in i["post"]["content"]:
+            return
+    createPost(f"Hi! I'm {USERNAME}!\n\nAbout me:\nI'm a bot account by @felisaraneae (v{VERSION})\nI will respond to simple commands when you @ me in comments\n\nCommands:\ncoinflip\n\nMy source: ", "programming", "/Users/felisaraneae/Downloads/profilePicture.png")
 
-while True:
-    time.sleep(5)
-    replyToUnreadMessages()
+def shutdown(signum, frame):
+    print("Shutting down...")
+    running = False
+
+signal.signal(signal.SIGINT, shutdown)
+signal.signal(signal.SIGTERM, shutdown)
+
+try:
+    checkForUpdateMessage()
+except:
+    pass
+
+exit()
+
+while running:
+    time.sleep(60)
+    try:
+        replyToUnreadMessages()
+    except:
+        pass
+
+print("Successfully stopped cleanly!")
