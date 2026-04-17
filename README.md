@@ -16,5 +16,6 @@
     VERSION=1.0.0
     ```
 
-4. Install dependencies - `pip3 install -r requirements.txt`
-5. Run - `python3 ./index.py`
+4. Set up the venv - `python3 -m venv venv && source venv/bin/activate`
+5. Install dependencies - `pip3 install -r requirements.txt`
+6. Run - `python3 ./index.py`
