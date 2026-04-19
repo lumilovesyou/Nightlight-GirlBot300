@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timezone
 import mimetypes
 import requests
 import logging
@@ -9,6 +9,8 @@ import json
 import time
 import os
 
+from scripts import reminders
+
 load_dotenv()
 
 # Init consts
@@ -16,15 +18,14 @@ SITE = "https://nightlightapp.net/"
 API_POINT = f"{SITE}nlapi/"
 SESSION = requests.Session()
 VERSION = os.getenv("VERSION") or "1.0.0"
-
 USERNAME = os.getenv("USERNAME")
+COMMANDS = {"coinflip": "coinflip", "random": "random (number) (number)", "reminder": "reminder (number) (days/hours/minutes)"}
 
 running = True
 
 # Set up logging
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-if (not os.path.exists(f"{os.getcwd()}/logs")):
-    os.makedirs(f"{os.getcwd()}/logs")
+os.makedirs(f"{os.getcwd()}/logs", exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -34,6 +35,14 @@ logging.basicConfig(
     ]
 )
 logging.info("Starting bot...")
+
+try:
+    COOLDOWN = int(os.getenv("COOLDOWN"))
+except:
+    logging.fatal("Failed to convert env value!")
+    exit()
+
+reminderDatabase = reminders.reminderDatabase()
 
 # Get token
 try:
@@ -84,60 +93,116 @@ def createPost(text, category="other", filePath=None):
         logging.info(f"Posted \"{text}\"")
     else:
         logging.error(f"Failed to post \"{text}\"!\n{response.status_code}\n{response.reason}")
+        
+def createCommentReply(text, messageID, replyID):
+    response = SESSION.post(f"{API_POINT}comment",
+        data={
+        "content": text,
+        "post": messageID,
+        "replyTo": replyID
+    })
+    if response.status_code == 200:
+        logging.info(f"Replied to {messageID} {replyID} with \"{text}\" ")
+    else:
+        logging.error(f"Failed to reply to comment {messageID} {replyID} with \"{text}\"!\n{response.status_code}\n{response.reason}")
 
 # Afaik there's not a way to get the ID of the comment you need to reply to so you just need to logic it out manually
-def findCommentIDs(messageID, author):
+def findCommentIDs(messageID, author, valueToFind):
     response = SESSION.get(f"{SITE}responses.php", params={"getAllComments": messageID, "author": author}).json()["comments"]
-    validIDs = []
+    validIDs = {}
     invalidIDs = []
     for i in response:
         if i["author"]["username"] == USERNAME:
             try:
                 replyID = i["comment"]["replyTo"]
                 invalidIDs.append(replyID)
-            except Exception as e:
+            except:
                 pass
             pass
         text = i["comment"]["content"]
-        if f"@{USERNAME}" in text and "coinflip" in text:
-            validIDs.append(i["comment"]["id"])
+        if f"@{USERNAME}" in text and valueToFind in text:
+            validIDs[i["comment"]["id"]] = text
     for i in invalidIDs:
-        try:
-            validIDs.remove(i)
-        except Exception as e:
-            pass
+        if i in validIDs.keys():
+            validIDs.pop(i)
     return validIDs
 
 def replyToUnreadMessages():
-    logging.info("Attempting to get unread messages")
     try:
         response = SESSION.get(f"{API_POINT}user", params={"action": "getUnreadNotifications"}).json()["data"]
         messages = response["new"]
         for i in messages:
-            text = i["content"]
+            text = i["content"].lower()
             if f"@{USERNAME}" in text and not "</strong> commented" in text:
-                if "coinflip" in text:
+                foundCommand = next((word for word in COMMANDS.keys() if word in text), None)
+                if foundCommand:
                     messageID = i["extra"].split("/")
                     messageID = messageID[len(messageID) - 1]
-                    for j in findCommentIDs(messageID, i["owner"]):
-                        SESSION.post(f"{API_POINT}comment",
-                            data={
-                            "content": ["heads", "tails"][random.randint(0, 1)],
-                            "post": messageID,
-                            "replyTo": j
-                        })
-                        logging.info(f"Replying with coinflip to {messageID} {j}")       
+                    for commentID,commentContent in findCommentIDs(messageID, i["owner"], foundCommand).items():
+                        try:
+                            match foundCommand:
+                                case "coinflip":
+                                    content = ["heads", "tails"][random.randint(0, 1)]
+                                case "random" | "reminder":
+                                    commentContent = commentContent.split(" ")
+                                    position = commentContent.index(foundCommand)
+                                    if foundCommand == "random":
+                                        try:
+                                            numOne,numTwo = int(commentContent[position + 1]),int(commentContent[position + 2])
+                                            if numOne < numTwo:
+                                                content = random.randint(numOne, numTwo + 1)
+                                            else:
+                                                content = random.randint(numTwo, numOne + 1)
+                                        except:
+                                            content = "Invalid command format"
+                                    else:
+                                        content = ""
+                                        try:
+                                            currentTime,remindTime,timeFormat = int(datetime.now(timezone.utc).timestamp()),int(commentContent[position + 1]),commentContent[position + 2]
+                                            match timeFormat:
+                                                case "second" | "seconds":
+                                                    pass
+                                                case "minute" | "minutes":
+                                                    remindTime *= 60
+                                                case "hour" | "hours":
+                                                    remindTime *= 3_600
+                                                case "day" | "days":
+                                                    remindTime *= 86_400
+                                                case _:
+                                                    content = "Invalid command format"
+                                            if content == "":
+                                                remindTime = currentTime + remindTime
+                                                reminderDatabase.addReminder(messageID, commentID, remindTime)
+                                                content = "Reminder added!"
+                                        except:
+                                            content = "Invalid command format"
+                            logging.info(f"Replying to {messageID} {commentID}")
+                            createCommentReply(content, messageID, commentID)
+                        except:
+                            logging.error(f"Failed to generate response for {foundCommand} to {messageID} {commentID}")   
     except Exception as e:
         logging.error(f"Failed to get unread messages!\n{e}")
         
+def manageCommitments():
+    for _,messageID,commentID,_ in reminderDatabase.checkReminders():
+        createCommentReply("Here's your reminder!", messageID, commentID)
+       
+def formatMessage(text):
+    return text.replace("%v", VERSION).replace("%u", USERNAME).replace("%c", "\n".join(COMMANDS.values()))
+        
 def checkForUpdateMessage():
-    response = SESSION.get(f"{SITE}responses.php", params={"getAllPosts": "girlbot3000", "after": "null", "sort": "newest"}).json()
+    response = SESSION.get(f"{SITE}responses.php", params={"getAllPosts": USERNAME, "after": "null", "sort": "newest"}).json()
     for i in response:
         if f"{VERSION}" in i["post"]["content"]:
             return
-    createPost(f"Hi! I'm {USERNAME}!\n\nAbout me:\nI'm an experimental bot account by @felisaraneae (v{VERSION})\nI will respond to simple commands when you @ me in comments\n\nCommands:\ncoinflip\n\nMy source:\nhttps://github.com/lumilovesyou/Nightlight-GirlBot300", "programming", "./assets/profilePicture.png")
+    
+    if os.getenv("ABOUT_MESSAGE"):
+        createPost(formatMessage(os.getenv("ABOUT_MESSAGE")), "technology", "./assets/profilePicture.png")
+    if os.getenv("UPDATE_MESSAGE"):
+        createPost(formatMessage(os.getenv("ABOUT_MESSAGE")), "programming")
 
 def shutdown(signum, frame):
+    global running
     logging.info("Shutting down...")
     running = False
 
@@ -150,10 +215,15 @@ except Exception as e:
     logging.error(f"Failed to check update message!\n{e}")
 
 while running:
-    time.sleep(60)
-    try:
-        replyToUnreadMessages()
-    except Exception as e:
-        logging.error(f"Failed to do a reply loop!\n{e}")
+    time.sleep(COOLDOWN)
+    if (running):
+        try:
+            replyToUnreadMessages()
+        except Exception as e:
+            logging.error(f"Failed to do replies!\n{e}")
+        try:
+            manageCommitments()
+        except Exception as e:
+            logging.error(f"Failed to finish commitments!\n{e}")
 
-logging("Successfully stopped cleanly!")
+logging.info("Successfully stopped cleanly!")
