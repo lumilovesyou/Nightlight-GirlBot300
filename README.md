@@ -33,3 +33,5 @@ The `.env` file has several fields to explain.
 `ABOUT_MESSAGE` - A message meant to introduce the bot. A new one will be sent every time the `VERSION` value in incremented
 `UPDATE_MESSAGE` - A message similar to the above field but meant to introduce new features
 `COOLDOWN` - The time between running actions in seconds
+
+For the `ABOUT_MESSAGE` and `UPDATE_MESSAGE` fields there's several placeholder keys you can use. `%u` is replaced with the `USERNAME` field, `%v` is replaced with the `VERSION` field, and `%c` is replaced with the values from the COMMANDS dictionary in `index.py` split by newlines.

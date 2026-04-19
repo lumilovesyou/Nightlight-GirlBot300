@@ -196,10 +196,10 @@ def checkForUpdateMessage():
         if f"{VERSION}" in i["post"]["content"]:
             return
     
-    if os.getenv("ABOUT_MESSAGE"):
-        createPost(formatMessage(os.getenv("ABOUT_MESSAGE")), "technology", "./assets/profilePicture.png")
     if os.getenv("UPDATE_MESSAGE"):
         createPost(formatMessage(os.getenv("ABOUT_MESSAGE")), "programming")
+    if os.getenv("ABOUT_MESSAGE"):
+        createPost(formatMessage(os.getenv("ABOUT_MESSAGE")), "technology", "./assets/profilePicture.png")
 
 def shutdown(signum, frame):
     global running
