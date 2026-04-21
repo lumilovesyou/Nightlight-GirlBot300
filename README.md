@@ -16,6 +16,7 @@
     VERSION=1.0.0
     ABOUT_MESSAGE="Username: %u, version: %v, commands: %c"
     UPDATE_MESSAGE="New version out! Username: %u, version: %v, commands: %c"
+    HELP_MESSAGE="Commands:\n%c"
     COOLDOWN=60
     ```
 
@@ -27,11 +28,12 @@
 
 The `.env` file has several fields to explain.
 
-`USERNAME` - The username of the account you're connecting to
-`PASSWORD` - The password of the account you're connecting to
-`VERSION` - The version of the bot. Used for about and update messages
-`ABOUT_MESSAGE` - A message meant to introduce the bot. A new one will be sent every time the `VERSION` value in incremented
-`UPDATE_MESSAGE` - A message similar to the above field but meant to introduce new features
-`COOLDOWN` - The time between running actions in seconds
+- `USERNAME` - The username of the account you're connecting to
+- `PASSWORD` - The password of the account you're connecting to
+- `VERSION` - The version of the bot. Used for about and update messages
+- `ABOUT_MESSAGE` - A message meant to introduce the bot. A new one will be sent every time the `VERSION` value in incremented
+- `UPDATE_MESSAGE` - A message similar to the above field but meant to introduce new features
+- `HELP_MESSAGE` - The reply given when a user asks for help
+- `COOLDOWN` - The time between running actions in seconds
 
-For the `ABOUT_MESSAGE` and `UPDATE_MESSAGE` fields there's several placeholder keys you can use. `%u` is replaced with the `USERNAME` field, `%v` is replaced with the `VERSION` field, and `%c` is replaced with the values from the COMMANDS dictionary in `index.py` split by newlines.
+For the `ABOUT_MESSAGE` and `UPDATE_MESSAGE` fields there's several placeholder keys you can use. `%u` is replaced with the `USERNAME` field, `%v` is replaced with the `VERSION` field, and `%c` is replaced with the values from the COMMANDS dictionary in `index.py`. The commands will be split by newlines except in `HELP_MESSAGE` where they will be split by commas.

@@ -19,7 +19,14 @@ API_POINT = f"{SITE}nlapi/"
 SESSION = requests.Session()
 VERSION = os.getenv("VERSION") or "1.0.0"
 USERNAME = os.getenv("USERNAME")
-COMMANDS = {"coinflip": "coinflip", "random": "random (number) (number)", "reminder": "reminder (number) (days/hours/minutes)"}
+COMMANDS = {
+    "coinflip": "coinflip",
+    "help": "help",
+    "random": "random (number) (number)",
+    "reaction": "reaction",
+    "reminder": "reminder (number) (days/hours/minutes)"
+}
+REACTION_IMAGES = [i for i in os.listdir("./assets/reaction-images") if i[0] != "."]
 
 running = True
 
@@ -67,19 +74,21 @@ except Exception as e:
     logging.error(f"Failed to remove old tokens\n{e}")
     
 logging.info("Ready Mr. Stark!")
-    
-def createPost(text, category="other", filePath=None):
+
+def constructFile(filePath):
     files = {}
     if filePath and os.path.exists(filePath):
         # Don't really need more than one image right now so... ~~~~~~~~~~
         files = {
-            "file0": (
+            "file": (
                 os.path.basename(filePath),
                 open(filePath, "rb"),
                 mimetypes.guess_type(filePath)[0] or "application/octet-stream"
             )
         }
-        
+    return files
+    
+def createPost(text, category="other", filePath=None):
     response = SESSION.post(f"{API_POINT}post",
         data={
             "content": text,
@@ -87,24 +96,26 @@ def createPost(text, category="other", filePath=None):
             "visibility": 0,
             "views": 2
         },
-        files=files
+        files=constructFile(filePath)
     )
     if response.status_code == 200:
-        logging.info(f"Posted \"{text}\"")
+        logging.info(f"Posted \"{text}\"{f" and file {filePath}" if filePath else ""}")
     else:
-        logging.error(f"Failed to post \"{text}\"!\n{response.status_code}\n{response.reason}")
+        logging.error(f"Failed to post \"{text}\"{f" and file {filePath}" if filePath else ""}!\n{response.status_code}\n{response.reason}")
         
-def createCommentReply(text, messageID, replyID):
+def createCommentReply(text, messageID, replyID, filePath=None):
     response = SESSION.post(f"{API_POINT}comment",
         data={
-        "content": text,
-        "post": messageID,
-        "replyTo": replyID
-    })
+            "content": text,
+            "post": messageID,
+            "replyTo": replyID
+        },
+        files=constructFile(filePath)
+    )
     if response.status_code == 200:
-        logging.info(f"Replied to {messageID} {replyID} with \"{text}\" ")
+        logging.info(f"Replied to {messageID} {replyID} with \"{text}\"{f" and file {filePath}" if filePath else ""}")
     else:
-        logging.error(f"Failed to reply to comment {messageID} {replyID} with \"{text}\"!\n{response.status_code}\n{response.reason}")
+        logging.error(f"Failed to reply to comment {messageID} {replyID} with \"{text}\"{f" and file {filePath}" if filePath else ""}!\n{response.status_code}\n{response.reason}")
 
 # Afaik there's not a way to get the ID of the comment you need to reply to so you just need to logic it out manually
 def findCommentIDs(messageID, author, valueToFind):
@@ -142,7 +153,7 @@ def replyToUnreadMessages():
                         try:
                             match foundCommand:
                                 case "coinflip":
-                                    content = ["heads", "tails"][random.randint(0, 1)]
+                                    content = (["heads", "tails"][random.randint(0, 1)], none)
                                 case "random" | "reminder":
                                     commentContent = commentContent.split(" ")
                                     position = commentContent.index(foundCommand)
@@ -150,9 +161,9 @@ def replyToUnreadMessages():
                                         try:
                                             numOne,numTwo = int(commentContent[position + 1]),int(commentContent[position + 2])
                                             if numOne < numTwo:
-                                                content = random.randint(numOne, numTwo + 1)
+                                                content = random.randint(numOne, numTwo)
                                             else:
-                                                content = random.randint(numTwo, numOne + 1)
+                                                content = random.randint(numTwo, numOne)
                                         except:
                                             content = "Invalid command format"
                                     else:
@@ -176,19 +187,25 @@ def replyToUnreadMessages():
                                                 content = "Reminder added!"
                                         except:
                                             content = "Invalid command format"
+                                case "help":
+                                    content = formatMessage(os.getenv("HELP_MESSAGE"), ", ", False)
+                                case "reaction":
+                                    content = ("", f"./assets/reaction-images/{REACTION_IMAGES[random.randint(0, len(REACTION_IMAGES) - 1)]}")
+                            if type(content) != tuple:
+                                content = (content, None)
                             logging.info(f"Replying to {messageID} {commentID}")
-                            createCommentReply(content, messageID, commentID)
+                            createCommentReply(content[0], messageID, commentID, content[1])
                         except:
                             logging.error(f"Failed to generate response for {foundCommand} to {messageID} {commentID}")   
     except Exception as e:
         logging.error(f"Failed to get unread messages!\n{e}")
+       
+def formatMessage(text, cSeperator="\n", cValues=True):
+    return text.replace("%v", VERSION).replace("%u", USERNAME).replace("%c", cSeperator.join(COMMANDS.values() if cValues else COMMANDS.keys()))
         
 def manageCommitments():
     for _,messageID,commentID,_ in reminderDatabase.checkReminders():
         createCommentReply("Here's your reminder!", messageID, commentID)
-       
-def formatMessage(text):
-    return text.replace("%v", VERSION).replace("%u", USERNAME).replace("%c", "\n".join(COMMANDS.values()))
         
 def checkForUpdateMessage():
     response = SESSION.get(f"{SITE}responses.php", params={"getAllPosts": USERNAME, "after": "null", "sort": "newest"}).json()
@@ -197,7 +214,7 @@ def checkForUpdateMessage():
             return
     
     if os.getenv("UPDATE_MESSAGE"):
-        createPost(formatMessage(os.getenv("ABOUT_MESSAGE")), "programming")
+        createPost(formatMessage(os.getenv("UPDATE_MESSAGE")), "programming")
     if os.getenv("ABOUT_MESSAGE"):
         createPost(formatMessage(os.getenv("ABOUT_MESSAGE")), "technology", "./assets/profilePicture.png")
 
@@ -216,7 +233,7 @@ except Exception as e:
 
 while running:
     time.sleep(COOLDOWN)
-    if (running):
+    if running:
         try:
             replyToUnreadMessages()
         except Exception as e:
