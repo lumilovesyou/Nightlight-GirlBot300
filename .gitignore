@@ -2,5 +2,6 @@
 .env*
 /logs
 /database
+/assets/reaction-images/*
 bot-*.log
 __pycache__

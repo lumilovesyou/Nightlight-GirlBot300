@@ -87,7 +87,7 @@ def constructFile(filePath):
             )
         }
     return files
-    
+
 def createPost(text, category="other", filePath=None):
     response = SESSION.post(f"{API_POINT}post",
         data={
@@ -152,45 +152,58 @@ def replyToUnreadMessages():
                     for commentID,commentContent in findCommentIDs(messageID, i["owner"], foundCommand).items():
                         try:
                             match foundCommand:
+                                #Coinflip command
                                 case "coinflip":
-                                    content = (["heads", "tails"][random.randint(0, 1)], none)
-                                case "random" | "reminder":
-                                    commentContent = commentContent.split(" ")
-                                    position = commentContent.index(foundCommand)
-                                    if foundCommand == "random":
-                                        try:
-                                            numOne,numTwo = int(commentContent[position + 1]),int(commentContent[position + 2])
-                                            if numOne < numTwo:
-                                                content = random.randint(numOne, numTwo)
-                                            else:
-                                                content = random.randint(numTwo, numOne)
-                                        except:
-                                            content = "Invalid command format"
-                                    else:
-                                        content = ""
-                                        try:
-                                            currentTime,remindTime,timeFormat = int(datetime.now(timezone.utc).timestamp()),int(commentContent[position + 1]),commentContent[position + 2]
-                                            match timeFormat:
-                                                case "second" | "seconds":
-                                                    pass
-                                                case "minute" | "minutes":
-                                                    remindTime *= 60
-                                                case "hour" | "hours":
-                                                    remindTime *= 3_600
-                                                case "day" | "days":
-                                                    remindTime *= 86_400
-                                                case _:
-                                                    content = "Invalid command format"
-                                            if content == "":
-                                                remindTime = currentTime + remindTime
-                                                reminderDatabase.addReminder(messageID, commentID, remindTime)
-                                                content = "Reminder added!"
-                                        except:
-                                            content = "Invalid command format"
+                                    content = (["heads", "tails"][random.randint(0, 1)], None)
+
+                                #Help command
                                 case "help":
                                     content = formatMessage(os.getenv("HELP_MESSAGE"), ", ", False)
+                                    
+                                #Meow command
+                                case "meow":
+                                    content = "Meow :3"
+                                    
+                                #Random number command
+                                case "random":
+                                    commentContent = commentContent.split(" ")
+                                    position = commentContent.index(foundCommand)
+                                    try:
+                                        numOne,numTwo = int(commentContent[position + 1]),int(commentContent[position + 2])
+                                        if numOne < numTwo:
+                                            content = random.randint(numOne, numTwo)
+                                        else:
+                                            content = random.randint(numTwo, numOne)
+                                    except:
+                                        content = "Invalid command format"
+                                        
+                                #Reaction image command
                                 case "reaction":
                                     content = ("", f"./assets/reaction-images/{REACTION_IMAGES[random.randint(0, len(REACTION_IMAGES) - 1)]}")
+                                    
+                                #Reminder command
+                                case "reminder":
+                                    commentContent = commentContent.split(" ")
+                                    position = commentContent.index(foundCommand)
+                                    try:
+                                        currentTime,remindTime,timeFormat = int(datetime.now(timezone.utc).timestamp()),int(commentContent[position + 1]),commentContent[position + 2]
+                                        match timeFormat:
+                                            case "second" | "seconds":
+                                                pass
+                                            case "minute" | "minutes":
+                                                remindTime *= 60
+                                            case "hour" | "hours":
+                                                remindTime *= 3_600
+                                            case "day" | "days":
+                                                remindTime *= 86_400
+                                            case _:
+                                                content = "Invalid command format"
+                                        if content == "":
+                                            remindTime = currentTime + remindTime
+                                            reminderDatabase.addReminder(messageID, commentID, remindTime)
+                                            content = "Reminder added!"
+                                    except:
+                                        content = "Invalid command format"
                             if type(content) != tuple:
                                 content = (content, None)
                             logging.info(f"Replying to {messageID} {commentID}")
@@ -223,14 +236,17 @@ def shutdown(signum, frame):
     logging.info("Shutting down...")
     running = False
 
+#(Hopefully) graceful shutdown
 signal.signal(signal.SIGINT, shutdown)
 signal.signal(signal.SIGTERM, shutdown)
 
+#Run update message info
 try:
     checkForUpdateMessage()
 except Exception as e:
     logging.error(f"Failed to check update message!\n{e}")
 
+#Actual bot loop
 while running:
     time.sleep(COOLDOWN)
     if running:
