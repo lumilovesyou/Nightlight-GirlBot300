@@ -14,6 +14,7 @@ from scripts import reminders
 
 load_dotenv()
 
+#### Startup process
 # Init consts
 SITE = "https://nightlightapp.net/"
 API_POINT = f"{SITE}nlapi/"
@@ -30,7 +31,6 @@ COMMANDS = {
     "reminder": "reminder (number) (days/hours/minutes)",
 }
 REACTION_IMAGES = [i for i in os.listdir("./assets/reaction-images") if i[0] != "."]
-
 
 try:
     REPOSITORY = git.Repo(search_parent_directories=True)
@@ -70,9 +70,9 @@ try:
         logging.fatal("Failed to get token!")
         exit()
 except Exception as e:
-    logging.fatal(f"Failed to get token!\n{e}")
+    logging.fatal(f"Failed to get token!\n{e}")    
 
-# Invalid the previous token (probably a really gross way to do this but I couldn't find an endpoint to grab tokens from)
+# Invalidate the previous token (probably a really gross way to do this but I couldn't find an endpoint to grab tokens from)
 try:
     logging.info("Attempting to remove tokens")
     grabTokens = SESSION.get(f"{SITE}u/{USERNAME}").text
@@ -85,7 +85,10 @@ except Exception as e:
     logging.error(f"Failed to remove old tokens\n{e}")
     
 logging.info("Ready Mr. Stark!")
+#### Startup process
 
+
+#### Message sending
 def constructFile(filePath):
     files = {}
     if filePath and os.path.exists(filePath):
@@ -127,7 +130,10 @@ def createCommentReply(text, messageID, replyID, filePath=None):
         logging.info(f"Replied to {messageID} {replyID} with \"{text}\"{f" and file {filePath}" if filePath else ""}")
     else:
         logging.error(f"Failed to reply to comment {messageID} {replyID} with \"{text}\"{f" and file {filePath}" if filePath else ""}!\n{response.status_code}\n{response.reason}")
+#### Message sending
 
+
+#### Message handling
 # Afaik there's not a way to get the ID of the comment you need to reply to so you just need to logic it out manually
 def findCommentIDs(messageID, author, valueToFind):
     response = SESSION.get(f"{SITE}responses.php", params={"getAllComments": messageID, "author": author}).json()["comments"]
@@ -148,6 +154,11 @@ def findCommentIDs(messageID, author, valueToFind):
         if i in validIDs.keys():
             validIDs.pop(i)
     return validIDs
+
+def formatMessage(text, cSeperator="\n", cValues=True):
+    return text.replace("%v", VERSION).replace("%u", USERNAME).replace("%c", cSeperator.join(COMMANDS.values() if cValues else COMMANDS.keys()))
+#### Message handling
+
 
 def replyToUnreadMessages():
     try:
@@ -229,14 +240,25 @@ def replyToUnreadMessages():
                             logging.error(f"Failed to generate response for {foundCommand} to {messageID} {commentID}")   
     except Exception as e:
         logging.error(f"Failed to get unread messages!\n{e}")
-       
-def formatMessage(text, cSeperator="\n", cValues=True):
-    return text.replace("%v", VERSION).replace("%u", USERNAME).replace("%c", cSeperator.join(COMMANDS.values() if cValues else COMMANDS.keys()))
-        
+
 def manageCommitments():
     for _,messageID,commentID,_ in reminderDatabase.checkReminders():
         createCommentReply("Here's your reminder!", messageID, commentID)
-        
+
+
+#### System Management
+def shutdown(signum, frame):
+    global running
+    logging.info("Shutting down...")
+    running = False
+
+#(Hopefully) graceful shutdown
+signal.signal(signal.SIGINT, shutdown)
+signal.signal(signal.SIGTERM, shutdown)
+#### System Management
+
+
+#### Second startup process
 def checkForUpdateMessage():
     response = SESSION.get(f"{SITE}responses.php", params={"getAllPosts": USERNAME, "after": "null", "sort": "newest"}).json()
     for i in response:
@@ -248,20 +270,13 @@ def checkForUpdateMessage():
     if os.getenv("ABOUT_MESSAGE"):
         createPost(formatMessage(os.getenv("ABOUT_MESSAGE")), "technology", "./assets/profilePicture.png")
 
-def shutdown(signum, frame):
-    global running
-    logging.info("Shutting down...")
-    running = False
-
-#(Hopefully) graceful shutdown
-signal.signal(signal.SIGINT, shutdown)
-signal.signal(signal.SIGTERM, shutdown)
-
 #Run update message info
 try:
     checkForUpdateMessage()
 except Exception as e:
     logging.error(f"Failed to check update message!\n{e}")
+#### Startup startup process
+
 
 #Actual bot loop
 while running:
