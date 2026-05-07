@@ -7,6 +7,7 @@ import random
 import signal
 import json
 import time
+import git
 import os
 
 from scripts import reminders
@@ -22,11 +23,21 @@ USERNAME = os.getenv("USERNAME")
 COMMANDS = {
     "coinflip": "coinflip",
     "help": "help",
+    "info": "info",
+    "meow": "meow",
     "random": "random (number) (number)",
     "reaction": "reaction",
-    "reminder": "reminder (number) (days/hours/minutes)"
+    "reminder": "reminder (number) (days/hours/minutes)",
 }
 REACTION_IMAGES = [i for i in os.listdir("./assets/reaction-images") if i[0] != "."]
+
+
+try:
+    REPOSITORY = git.Repo(search_parent_directories=True)
+    GIT_SHA = REPOSITORY.head.object.hexsha
+except:
+    GIT_SHA = "None"
+    pass
 
 running = True
 
@@ -160,6 +171,10 @@ def replyToUnreadMessages():
                                 case "help":
                                     content = formatMessage(os.getenv("HELP_MESSAGE"), ", ", False)
                                     
+                                #Info command
+                                case "info":
+                                    content = f"Username: {USERNAME} | Version: {VERSION} | Cooldown: {COOLDOWN} | Git SHA: {GIT_SHA} | Girlbot3000 Base"
+                                    
                                 #Meow command
                                 case "meow":
                                     content = "Meow :3"
@@ -168,6 +183,7 @@ def replyToUnreadMessages():
                                 case "random":
                                     commentContent = commentContent.split(" ")
                                     position = commentContent.index(foundCommand)
+                                    content = ""
                                     try:
                                         numOne,numTwo = int(commentContent[position + 1]),int(commentContent[position + 2])
                                         if numOne < numTwo:
@@ -185,6 +201,7 @@ def replyToUnreadMessages():
                                 case "reminder":
                                     commentContent = commentContent.split(" ")
                                     position = commentContent.index(foundCommand)
+                                    content = ""
                                     try:
                                         currentTime,remindTime,timeFormat = int(datetime.now(timezone.utc).timestamp()),int(commentContent[position + 1]),commentContent[position + 2]
                                         match timeFormat:
