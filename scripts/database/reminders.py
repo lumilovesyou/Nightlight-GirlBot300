@@ -12,6 +12,10 @@ class reminderDatabase():
         self.cursor = self.connection.cursor()
         self._configure()
         self._initDatabase()
+    
+    def _configure(self):
+        self.connection.execute("PRAGMA journal_mode=WAL;")
+        self.connection.execute("PRAGMA synchronous=NORMAL;")
         
     def _initDatabase(self):
         self.cursor.execute("""
@@ -27,10 +31,6 @@ class reminderDatabase():
         ON reminders(remind_at)
         """)
         self.connection.commit()
-    
-    def _configure(self):
-        self.connection.execute("PRAGMA journal_mode=WAL;")
-        self.connection.execute("PRAGMA synchronous=NORMAL;")
     
     def addReminder(self, messageID, commentID, time):
         self.cursor.execute("""

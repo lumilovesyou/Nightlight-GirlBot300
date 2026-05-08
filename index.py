@@ -10,7 +10,7 @@ import time
 import git
 import os
 
-from scripts import reminders
+from scripts.database import reminders, downtime
 
 load_dotenv()
 
@@ -60,7 +60,14 @@ except:
     logging.fatal("Failed to convert env value!")
     exit()
 
-reminderDatabase = reminders.reminderDatabase()
+# Database setup
+logging.info("Attempting to set up databases")
+try:
+    reminderDatabase = reminders.reminderDatabase()
+    uptimeDatabase = downtime.uptimeDatabase(COOLDOWN)
+except:
+    logging.fatal("Failed to set up databases!")
+    exit()
 
 # Get token
 try:
@@ -83,6 +90,9 @@ try:
             SESSION.post(f"{API_POINT}user", params={"action": "invalidateToken"}, json={"tokenId": i["id"]})
 except Exception as e:
     logging.error(f"Failed to remove old tokens\n{e}")
+    
+lastDowntime = uptimeDatabase.startupCheck()
+logging.info(f"Last downtime: {lastDowntime}")
     
 logging.info("Ready Mr. Stark!")
 #### Startup process
@@ -184,7 +194,8 @@ def replyToUnreadMessages():
                                     
                                 #Info command
                                 case "info":
-                                    content = f"Username: {USERNAME} | Version: {VERSION} | Cooldown: {COOLDOWN} | Git SHA: {GIT_SHA} | Girlbot3000 Base"
+                                    # Not modifiable in .env because it's supposed to be the same between bots
+                                    content = f"Username: {USERNAME} | Version: {VERSION} | Cooldown: {COOLDOWN} | Git SHA: {GIT_SHA} | Uptime: {uptimeDatabase.getWeeklyUptimePercent()} | Girlbot3000 Base"
                                     
                                 #Meow command
                                 case "meow":
@@ -241,12 +252,15 @@ def replyToUnreadMessages():
     except Exception as e:
         logging.error(f"Failed to get unread messages!\n{e}")
 
+
+#### Database management
 def manageCommitments():
     for _,messageID,commentID,_ in reminderDatabase.checkReminders():
         createCommentReply("Here's your reminder!", messageID, commentID)
+#### Database management
 
 
-#### System Management
+#### System management
 def shutdown(signum, frame):
     global running
     logging.info("Shutting down...")
@@ -255,7 +269,7 @@ def shutdown(signum, frame):
 #(Hopefully) graceful shutdown
 signal.signal(signal.SIGINT, shutdown)
 signal.signal(signal.SIGTERM, shutdown)
-#### System Management
+#### System management
 
 
 #### Second startup process
@@ -290,5 +304,6 @@ while running:
             manageCommitments()
         except Exception as e:
             logging.error(f"Failed to finish commitments!\n{e}")
+    uptimeDatabase.updateHeartbeat()
 
 logging.info("Successfully stopped cleanly!")
