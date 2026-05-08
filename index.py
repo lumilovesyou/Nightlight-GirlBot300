@@ -1,47 +1,14 @@
-from dotenv import load_dotenv
 from datetime import datetime, timezone
-from pathlib import Path
 import subprocess
-import mimetypes
-import requests
+import threading
 import logging
-import psutil
-import random
 import signal
-import json
 import time
-import git
 import sys
 import os
 
-from scripts.database import reminders, downtime
-
-load_dotenv()
-
-#### Startup process
-# Init consts
-SITE = "https://nightlightapp.net/"
-API_POINT = f"{SITE}nlapi/"
-SESSION = requests.Session()
-VERSION = os.getenv("VERSION") or "1.0.0"
-USERNAME = os.getenv("USERNAME")
-COMMANDS = {
-    "coinflip": "coinflip",
-    "help": "help",
-    "info": "info",
-    "meow": "meow",
-    "random": "random (number) (number)",
-    "reaction": "reaction",
-    "reminder": "reminder (number) (days/hours/minutes)",
-}
-REACTION_IMAGES = [i for i in os.listdir("./assets/reaction-images") if i[0] != "."]
-
-try:
-    REPOSITORY = git.Repo(search_parent_directories=True)
-    GIT_SHA = REPOSITORY.head.object.hexsha
-except:
-    GIT_SHA = "None"
-    pass
+RESTART_DELAY = 10
+MAX_RESTARTS = 10
 
 running = True
 
@@ -56,302 +23,77 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-logging.info("Starting bot...")
 
 try:
-    COOLDOWN = int(os.getenv("COOLDOWN"))
+    PROCESSES = {
+        "bot": {"launch": True, "cmd": [sys.executable, "bot.py"], "process": None},
+        "panel": {"launch": bool(os.getenv("WEB_PANEL", "false")), "cmd": [sys.executable, "control-panel.py"], "process": None},
+    }
 except:
-    logging.fatal("Failed to convert env value!")
-    exit()
-
-# Database setup
-logging.info("Attempting to set up databases")
-try:
-    reminderDatabase = reminders.reminderDatabase()
-    uptimeDatabase = downtime.uptimeDatabase(COOLDOWN)
-except:
-    logging.fatal("Failed to set up databases!")
-    exit()
-
-# Get token
-try:
-    logging.info("Attempting to get key")
-    SESSION.post(f"{SITE}account/login", data={"loginusername": USERNAME, "loginpassword": os.getenv("PASSWORD")})
-    if SESSION.cookies.get_dict()["username"] != USERNAME:
-        logging.fatal("Failed to get token!")
-        exit()
-except Exception as e:
-    logging.fatal(f"Failed to get token!\n{e}")    
-
-# Invalidate the previous token (probably a really gross way to do this but I couldn't find an endpoint to grab tokens from)
-try:
-    logging.info("Attempting to remove tokens")
-    grabTokens = SESSION.get(f"{SITE}u/{USERNAME}").text
-    grabTokens = json.loads(grabTokens.split("\"loginTokens\":")[1].split("});document.getElementById('notificationdot-notifications')")[0])
-    for i in grabTokens:
-        if i["device"] == "python-requests/2.25.1" and not i["active"]:
-            # Remove old tokens
-            SESSION.post(f"{API_POINT}user", params={"action": "invalidateToken"}, json={"tokenId": i["id"]})
-except Exception as e:
-    logging.error(f"Failed to remove old tokens\n{e}")
-    
-lastDowntime = uptimeDatabase.startupCheck()
-logging.info(f"Last downtime: {lastDowntime}")
-    
-logging.info("Ready Mr. Stark!")
-#### Startup process
+    logging.fatal("[supervisor] Failed to convert env value!")
 
 
-#### Message sending
-def constructFile(filePath):
-    files = {}
-    if filePath and os.path.exists(filePath):
-        # Don't really need more than one image right now so... ~~~~~~~~~~
-        files = {
-            "file": (
-                os.path.basename(filePath),
-                open(filePath, "rb"),
-                mimetypes.guess_type(filePath)[0] or "application/octet-stream"
-            )
-        }
-    return files
+### Child handling
+def pipeLogs(process, name):
+    for line in iter(process.stdout.readline, b""):
+        logging.info(f"[{name}] {line.decode().rstrip()}")
 
-def createPost(text, category="other", filePath=None):
-    response = SESSION.post(f"{API_POINT}post",
-        data={
-            "content": text,
-            "category": category,
-            "visibility": 0,
-            "views": 2
-        },
-        files=constructFile(filePath)
+def spawn(name):
+    entry = PROCESSES[name]
+    process = subprocess.Popen(
+        entry["cmd"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
     )
-    if response.status_code == 200:
-        logging.info(f"Posted \"{text}\"{f" and file {filePath}" if filePath else ""}")
-    else:
-        logging.error(f"Failed to post \"{text}\"{f" and file {filePath}" if filePath else ""}!\n{response.status_code}\n{response.reason}")
-        
-def createCommentReply(text, messageID, replyID, filePath=None):
-    response = SESSION.post(f"{API_POINT}comment",
-        data={
-            "content": text,
-            "post": messageID,
-            "replyTo": replyID
-        },
-        files=constructFile(filePath)
-    )
-    if response.status_code == 200:
-        logging.info(f"Replied to {messageID} {replyID} with \"{text}\"{f" and file {filePath}" if filePath else ""}")
-    else:
-        logging.error(f"Failed to reply to comment {messageID} {replyID} with \"{text}\"{f" and file {filePath}" if filePath else ""}!\n{response.status_code}\n{response.reason}")
-#### Message sending
+    entry["process"] = process
+    thread = threading.Thread(target=pipeLogs, args=(process, name), daemon=True)
+    thread.start()
+    return process
+
+def watch(name):
+    global running
+    restarts = 0
+    while running:
+        process = spawn(name)
+        logging.info(f"[supervisor] \"{name}\" started with PID {process.pid}")
+        process.wait()
+        if not running:
+            break
+        code = process.returncode
+        logging.warning(f"[supervisor] Process \"{name}\" exited with code {code}")
+        restarts += 1
+        if restarts > MAX_RESTARTS:
+            logging.fatal(f"[supervisor] Too many restart attempts! Exceeded {MAX_RESTARTS}.")
+            running = False
+            break
+        logging.info(f"[supervisor] Restarting {name} in {RESTART_DELAY} seconds. (Attempt {restarts})")
+        time.sleep(RESTART_DELAY)
+###
 
 
-#### Message handling
-# Afaik there's not a way to get the ID of the comment you need to reply to so you just need to logic it out manually
-def findCommentIDs(messageID, author, valueToFind):
-    response = SESSION.get(f"{SITE}responses.php", params={"getAllComments": messageID, "author": author}).json()["comments"]
-    validIDs = {}
-    invalidIDs = []
-    for i in response:
-        if i["author"]["username"] == USERNAME:
-            try:
-                replyID = i["comment"]["replyTo"]
-                invalidIDs.append(replyID)
-            except:
-                pass
-            pass
-        text = i["comment"]["content"]
-        if f"@{USERNAME}" in text and valueToFind in text:
-            validIDs[i["comment"]["id"]] = text
-    for i in invalidIDs:
-        if i in validIDs.keys():
-            validIDs.pop(i)
-    return validIDs
-
-def formatMessage(text, cSeperator="\n", cValues=True):
-    return text.replace("%v", VERSION).replace("%u", USERNAME).replace("%c", cSeperator.join(COMMANDS.values() if cValues else COMMANDS.keys()))
-#### Message handling
-
-
-def replyToUnreadMessages():
-    try:
-        response = SESSION.get(f"{API_POINT}user", params={"action": "getUnreadNotifications"}).json()["data"]
-        messages = response["new"]
-        for i in messages:
-            text = i["content"].lower()
-            if f"@{USERNAME}" in text and not "</strong> commented" in text:
-                foundCommand = next((word for word in COMMANDS.keys() if word in text), None)
-                if foundCommand:
-                    messageID = i["extra"].split("/")
-                    messageID = messageID[len(messageID) - 1]
-                    for commentID,commentContent in findCommentIDs(messageID, i["owner"], foundCommand).items():
-                        try:
-                            match foundCommand:
-                                #Coinflip command
-                                case "coinflip":
-                                    content = (["heads", "tails"][random.randint(0, 1)], None)
-
-                                #Help command
-                                case "help":
-                                    content = formatMessage(os.getenv("HELP_MESSAGE"), ", ", False)
-                                    
-                                #Info command
-                                case "info":
-                                    # Not modifiable in .env because it's supposed to be the same between bots
-                                    content = f"Username: {USERNAME} | Version: {VERSION} | Cooldown: {COOLDOWN} | Git SHA: {GIT_SHA} | Uptime: {uptimeDatabase.getWeeklyUptimePercent()} | Girlbot3000 Base"
-                                    
-                                #Meow command
-                                case "meow":
-                                    content = "Meow :3"
-                                    
-                                #Random number command
-                                case "random":
-                                    commentContent = commentContent.split(" ")
-                                    position = commentContent.index(foundCommand)
-                                    content = ""
-                                    try:
-                                        numOne,numTwo = int(commentContent[position + 1]),int(commentContent[position + 2])
-                                        if numOne < numTwo:
-                                            content = random.randint(numOne, numTwo)
-                                        else:
-                                            content = random.randint(numTwo, numOne)
-                                    except:
-                                        content = "Invalid command format"
-                                        
-                                #Reaction image command
-                                case "reaction":
-                                    content = ("", f"./assets/reaction-images/{REACTION_IMAGES[random.randint(0, len(REACTION_IMAGES) - 1)]}")
-                                    
-                                #Reminder command
-                                case "reminder":
-                                    commentContent = commentContent.split(" ")
-                                    position = commentContent.index(foundCommand)
-                                    content = ""
-                                    try:
-                                        currentTime,remindTime,timeFormat = int(datetime.now(timezone.utc).timestamp()),int(commentContent[position + 1]),commentContent[position + 2]
-                                        match timeFormat:
-                                            case "second" | "seconds":
-                                                pass
-                                            case "minute" | "minutes":
-                                                remindTime *= 60
-                                            case "hour" | "hours":
-                                                remindTime *= 3_600
-                                            case "day" | "days":
-                                                remindTime *= 86_400
-                                            case _:
-                                                content = "Invalid command format"
-                                        if content == "":
-                                            remindTime = currentTime + remindTime
-                                            reminderDatabase.addReminder(messageID, commentID, remindTime)
-                                            content = "Reminder added!"
-                                    except:
-                                        content = "Invalid command format"
-                            if type(content) != tuple:
-                                content = (content, None)
-                            logging.info(f"Replying to {messageID} {commentID}")
-                            createCommentReply(content[0], messageID, commentID, content[1])
-                        except:
-                            logging.error(f"Failed to generate response for {foundCommand} to {messageID} {commentID}")   
-    except Exception as e:
-        logging.error(f"Failed to get unread messages!\n{e}")
-
-
-#### Database management
-def manageCommitments():
-    for _,messageID,commentID,_ in reminderDatabase.checkReminders():
-        createCommentReply("Here's your reminder!", messageID, commentID)
-#### Database management
-
-
-#### System management
+### Handle graceful shutdown
 def shutdown(signum, frame):
     global running
-    logging.info("Shutting down...")
+    logging.info("[supervisor] Shutting down...")
     running = False
+    for name, entry in PROCESSES.items():
+        if entry["process"] and entry["process"].poll() is None:
+            logging.info(f"[supervisor] terminating {name}")
+            entry["process"].terminate()
 
-# (Hopefully) graceful shutdown
 signal.signal(signal.SIGINT, shutdown)
 signal.signal(signal.SIGTERM, shutdown)
-#### System management
+###
 
 
-#### Second startup process
-def checkForUpdateMessage():
-    response = SESSION.get(f"{SITE}responses.php", params={"getAllPosts": USERNAME, "after": "null", "sort": "newest"}).json()
-    for i in response:
-        if f"{VERSION}" in i["post"]["content"]:
-            return
+threads = []
+for name in PROCESSES:
+    thread = threading.Thread(target=watch, args=(name,), daemon=False)
+    thread.start()
+    threads.append(thread)
     
-    if os.getenv("UPDATE_MESSAGE"):
-        createPost(formatMessage(os.getenv("UPDATE_MESSAGE")), "programming")
-    if os.getenv("ABOUT_MESSAGE"):
-        createPost(formatMessage(os.getenv("ABOUT_MESSAGE")), "technology", "./assets/profilePicture.png")
-        
-def closeWebPanel():
-    panelProcessDetails = json.loads(Path(".pid.json").read_text())
-    try:
-        process = psutil.Process(int(panelProcessDetails["pid"]))
-        if process.create_time() == panelProcessDetails["create_time"]:
-            process.kill()
-    except:
-        pass
-
-# Run update message info
-try:
-    checkForUpdateMessage()
-except Exception as e:
-    logging.error(f"Failed to check update message!\n{e}")
-
-# Launch the control panel:
-if (os.getenv("WEB_PANEL").lower() == "true"):
-    logging.info("Attempting to start control panel")
-    try:
-        # Windows
-        command = [sys.executable, "control-panel.py"]
-        if os.name == "nt":
-            proc = subprocess.Popen(
-                command,
-                creationflags=(subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                close_fds=True,
-            )
-        # MacOS/Linux
-        else:
-            process = subprocess.Popen(
-                command,
-                start_new_session=True,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        panelProcessDetails = psutil.Process(process.pid)
-        Path(".pid.json").write_text(json.dumps({
-            "pid": panelProcessDetails.pid,
-            "create_time": panelProcessDetails.create_time(),
-        }))
-    except Exception as e:
-        logging.error(f"Failed to start control panel!\n{e}")
-#### Startup startup process
-
-# Actual bot loop
-while running:
-    time.sleep(COOLDOWN)
-    if running:
-        try:
-            replyToUnreadMessages()
-        except Exception as e:
-            logging.error(f"Failed to do replies!\n{e}")
-        try:
-            manageCommitments()
-        except Exception as e:
-            logging.error(f"Failed to finish commitments!\n{e}")
-    uptimeDatabase.updateHeartbeat()
+for thread in threads:
+    thread.join()
     
-# Exit web panel
-logging.info("Attempting to close web panel")
-closeWebPanel()
-
-logging.info("Successfully stopped cleanly!")
+logging.info("[supervisor] Exited cleanly")
