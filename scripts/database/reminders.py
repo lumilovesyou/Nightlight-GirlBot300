@@ -4,10 +4,10 @@ import os
 
 class reminderDatabase():
     def __init__(self, dbPath="/database/reminders.db"):
-        dbFullPath = os.getcwd() + dbPath
-        dbParentFolder = os.path.dirname(dbFullPath)
+        self.dbFullPath = os.getcwd() + dbPath
+        dbParentFolder = os.path.dirname(self.dbFullPath)
         os.makedirs(dbParentFolder, exist_ok=True)
-        self.connection = sqlite3.connect(dbFullPath)
+        self.connection = sqlite3.connect(self.dbFullPath)
         
         self.cursor = self.connection.cursor()
         self._configure()
@@ -31,6 +31,9 @@ class reminderDatabase():
         ON reminders(remind_at)
         """)
         self.connection.commit()
+        
+    def now(self):
+        return int(datetime.now(timezone.utc).timestamp())
     
     def addReminder(self, messageID, commentID, time):
         self.cursor.execute("""
@@ -38,9 +41,20 @@ class reminderDatabase():
         VALUES (?, ?, ?)
         """, (messageID, commentID, time))
         self.connection.commit() 
+        
+    def getCommitments(self):
+        # New connection each time for web panel not to break thanks to threads
+        connection = sqlite3.connect(self.dbFullPath)
+        cursor = connection.cursor()
+        
+        cursor.execute("""
+        SELECT * FROM reminders
+        """)
+        
+        return cursor.fetchall()
     
     def checkReminders(self):
-        currentTime = int(datetime.now(timezone.utc).timestamp())
+        currentTime = self.now()
         
         with self.connection:
             self.cursor.execute("""

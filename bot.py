@@ -28,6 +28,7 @@ COMMANDS = {
     "random": "random (number) (number)",
     "reaction": "reaction",
     "reminder": "reminder (number) (days/hours/minutes)",
+    "kill": "",
 }
 REACTION_IMAGES = [i for i in os.listdir("./assets/reaction-images") if i[0] != "."]
 
@@ -170,6 +171,7 @@ def formatMessage(text, cSeperator="\n", cValues=True):
 
 
 def replyToUnreadMessages():
+    global running
     try:
         response = SESSION.get(f"{API_POINT}user", params={"action": "getUnreadNotifications"}).json()["data"]
         messages = response["new"]

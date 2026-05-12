@@ -10,5 +10,10 @@
 }
 
 #info p {
-    margin-left: 5%;
+    margin-left: 1.5em;
+}
+
+#info table, th, td {
+    margin-left: 1.5em;
+    border: 1px solid white;
 }

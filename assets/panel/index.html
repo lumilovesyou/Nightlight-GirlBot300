@@ -8,12 +8,24 @@
                 body {
                     background-color: black;
                     color: white;
+
+                    a {
+                        color: lightblue;
+                    }
                 }
             }
 
             #info {
-                p {
+                p, table {
                     margin-left: 1.5em;
+                }
+
+                table, th, td {
+                    border: 1px solid white;
+                }
+
+                th, td {
+                    padding: 0 0.25em 0 0.25em;
                 }
             }
         </style>
@@ -22,7 +34,21 @@
         <h1>$name Control Panel</h1>
         <div id="info">
             <h3>Info:</h3>
-            <p>Uptime - <span class="status" style="--status-color: $colouredUptime">$uptime%</span></p>
+            <p>Uptime - <span class="status" style="--status-color: $colouredUptime">$uptime%</span></p><br>
+            
+            <p>Commitments - $time</p>
+            <table>
+                <tr>
+                    <th>Index</th><th>Message ID</th><th>Comment ID</th><th>Time</th><th>Link</th>
+                    $commitmentsTable
+                </tr>
+            </table>
         </div>
+
+        <br><br>
+
+        <form action="/restart_bot">
+            <input type="submit" value="Restart Bot">
+        </form>
     </body>
 </html>

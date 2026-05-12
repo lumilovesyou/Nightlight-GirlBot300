@@ -36,7 +36,19 @@ except:
 ### Child handling
 def pipeLogs(process, name):
     for line in iter(process.stdout.readline, b""):
-        logging.info(f"[{name}] {line.decode().rstrip()}")
+        line = line.decode().rstrip()
+        if line.startswith("SIGNAL:"):
+            handleSignal(line[7:], name)
+        else:
+            logging.info(f"[{name}] {line}")
+            
+def handleSignal(signal: str, name: str):
+    logging.info(f"[supervisor] Signal \"{signal}\" from {name}")
+    match signal:
+        case "restart bot":
+            process = PROCESSES["bot"]["process"]
+            if process:
+                process.terminate()
 
 def spawn(name):
     entry = PROCESSES[name]
